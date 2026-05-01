@@ -1,5 +1,6 @@
 'use client';
 
+import type { IScannerControls } from '@zxing/browser';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 type Device = {
@@ -42,21 +43,6 @@ type FilterOption = {
 
 type View = 'list' | 'create' | 'edit';
 type ScanState = 'idle' | 'requesting' | 'success' | 'denied' | 'unsupported' | 'insecure';
-
-type DetectedBarcode = {
-  rawValue: string;
-};
-
-type BarcodeDetectorInstance = {
-  detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]>;
-};
-
-type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorInstance;
-
-type WindowWithBarcodeDetector = Window &
-  typeof globalThis & {
-    BarcodeDetector?: BarcodeDetectorConstructor;
-  };
 
 const emptyForm: DeviceForm = {
   alias: '',
@@ -1330,16 +1316,14 @@ function ScanPanel({
   scanState: ScanState;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const frameRef = useRef<number | null>(null);
-  const isScanningRef = useRef(false);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
 
   const messageByState: Record<ScanState, string> = {
-    idle: '카메라 스캔을 시작하면 QR 인식값이 자동 입력되는 것처럼 동작합니다.',
+    idle: '카메라 스캔을 시작하면 QR 인식값이 자동 입력됩니다.',
     requesting: '카메라 화면에서 QR 코드를 찾고 있습니다.',
     success: '스캔 성공: 등록 폼에 적용됨',
     denied: '카메라 접근이 거부되었습니다. 수동 입력을 사용해 주세요.',
-    unsupported: '이 브라우저에서는 내장 QR 감지를 사용할 수 없습니다. 수동 입력을 사용해 주세요.',
+    unsupported: '이 브라우저에서는 카메라 QR 스캔을 시작할 수 없습니다. 수동 입력을 사용해 주세요.',
     insecure: '카메라 스캔은 HTTPS 또는 localhost에서 사용할 수 있습니다.',
   };
 
@@ -1348,15 +1332,8 @@ function ScanPanel({
   }, []);
 
   function stopCamera() {
-    isScanningRef.current = false;
-
-    if (frameRef.current !== null) {
-      window.cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
-
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -1371,9 +1348,7 @@ function ScanPanel({
       return;
     }
 
-    const barcodeWindow = window as WindowWithBarcodeDetector;
-
-    if (!navigator.mediaDevices?.getUserMedia || !barcodeWindow.BarcodeDetector) {
+    if (!navigator.mediaDevices?.getUserMedia || !videoRef.current) {
       onScanState('unsupported');
       return;
     }
@@ -1381,49 +1356,28 @@ function ScanPanel({
     onScanState('requesting');
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
+      const { BrowserQRCodeReader } = await import('@zxing/browser');
+      const codeReader = new BrowserQRCodeReader();
+      const controls = await codeReader.decodeFromConstraints(
+        {
+          video: {
+            facingMode: { ideal: 'environment' },
+          },
+          audio: false,
         },
-        audio: false,
-      });
-
-      streamRef.current = stream;
-
-      if (!videoRef.current) {
-        stopCamera();
-        onScanState('unsupported');
-        return;
-      }
-
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-
-      const detector = new barcodeWindow.BarcodeDetector({ formats: ['qr_code'] });
-      isScanningRef.current = true;
-
-      const scanFrame = async () => {
-        if (!isScanningRef.current || !videoRef.current) return;
-
-        try {
-          const results = await detector.detect(videoRef.current);
-          const rawValue = results[0]?.rawValue;
+        videoRef.current,
+        (result, _error, controls) => {
+          const rawValue = result?.getText();
 
           if (rawValue) {
-            stopCamera();
+            controls.stop();
+            scannerControlsRef.current = null;
             onScanResult(rawValue);
-            return;
           }
-        } catch {
-          stopCamera();
-          onScanState('unsupported');
-          return;
-        }
+        },
+      );
 
-        frameRef.current = window.requestAnimationFrame(scanFrame);
-      };
-
-      frameRef.current = window.requestAnimationFrame(scanFrame);
+      scannerControlsRef.current = controls;
     } catch (error) {
       stopCamera();
       const isPermissionError =
