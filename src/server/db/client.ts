@@ -30,6 +30,8 @@ export function getDb() {
 
       migrate(sqlite);
 
+      bootstrapLocations(sqlite);
+
       bootstrapAdmin(db);
 
       bundle = {
@@ -98,6 +100,13 @@ function migrate(sqlite: Database.Database) {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS locations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS device_tags (
       device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
       tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
@@ -107,6 +116,23 @@ function migrate(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS device_tags_tag_id_idx ON device_tags(tag_id);
     CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
   `);
+}
+
+function bootstrapLocations(sqlite: Database.Database) {
+  const now = Date.now();
+  const existingNames = new Set(
+    sqlite.prepare('SELECT name FROM locations').all().map((row) => (row as { name: string }).name),
+  );
+  const deviceLocations = sqlite.prepare("SELECT DISTINCT location FROM devices WHERE location != ''").all() as {
+    location: string;
+  }[];
+  const insert = sqlite.prepare('INSERT INTO locations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)');
+
+  for (const row of deviceLocations) {
+    if (existingNames.has(row.location)) continue;
+    insert.run(randomUUID(), row.location, now, now);
+    existingNames.add(row.location);
+  }
 }
 
 function bootstrapAdmin(db: ReturnType<typeof drizzle<typeof schema>>) {

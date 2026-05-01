@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { getDb } from './client';
-import { deviceTags, devices, tags, type DeviceRow, type TagRow } from './schema';
+import { deviceTags, devices, locations, tags, type DeviceRow, type LocationRow, type TagRow } from './schema';
 
 export type DeviceDto = {
   id: string;
@@ -19,6 +19,13 @@ export type DeviceDto = {
 };
 
 export type TagDto = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LocationDto = {
   id: string;
   name: string;
   createdAt: string;
@@ -181,6 +188,58 @@ export function deleteTag(id: string) {
   return result.changes > 0;
 }
 
+export function listLocations() {
+  return getDb().select().from(locations).orderBy(asc(locations.name)).all().map(toLocationDto);
+}
+
+export function createLocation(name: string) {
+  assertNoDuplicateLocation(name);
+
+  const now = Date.now();
+  const row = {
+    id: randomUUID(),
+    name,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  getDb().insert(locations).values(row).run();
+  return toLocationDto(row);
+}
+
+export function updateLocation(id: string, name: string) {
+  const existing = getDb().select().from(locations).where(eq(locations.id, id)).get();
+  if (!existing) return null;
+
+  assertNoDuplicateLocation(name, id);
+
+  const db = getDb();
+
+  db.update(locations).set({ name, updatedAt: Date.now() }).where(eq(locations.id, id)).run();
+  db.update(devices)
+    .set({ location: name, updatedAt: Date.now() })
+    .where(eq(devices.location, existing.name))
+    .run();
+
+  const updated = db.select().from(locations).where(eq(locations.id, id)).get();
+  return updated ? toLocationDto(updated) : null;
+}
+
+export function deleteLocation(id: string) {
+  const existing = getDb().select().from(locations).where(eq(locations.id, id)).get();
+  if (!existing) return false;
+
+  const db = getDb();
+
+  db.delete(locations).where(eq(locations.id, id)).run();
+  db.update(devices)
+    .set({ location: '', updatedAt: Date.now() })
+    .where(eq(devices.location, existing.name))
+    .run();
+
+  return true;
+}
+
 function assertNoDuplicateDevice(input: DeviceInput, excludeId?: string) {
   const duplicateCondition = or(eq(devices.qrPayload, input.qrPayload), eq(devices.numericCode, input.numericCode));
   const whereCondition = excludeId ? and(duplicateCondition, ne(devices.id, excludeId)) : duplicateCondition;
@@ -205,6 +264,19 @@ function assertNoDuplicateTag(name: string, excludeId?: string) {
 
   if (duplicate) {
     throw new ConflictError('이미 등록된 태그 이름입니다.');
+  }
+}
+
+function assertNoDuplicateLocation(name: string, excludeId?: string) {
+  const whereCondition = excludeId ? and(eq(locations.name, name), ne(locations.id, excludeId)) : eq(locations.name, name);
+  const duplicate = getDb()
+    .select({ id: locations.id })
+    .from(locations)
+    .where(whereCondition)
+    .get();
+
+  if (duplicate) {
+    throw new ConflictError('이미 등록된 위치 이름입니다.');
   }
 }
 
@@ -275,6 +347,15 @@ function toDeviceDto(row: DeviceRow, tagDtos: TagDto[]): DeviceDto {
 }
 
 function toTagDto(row: TagRow): TagDto {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: formatDate(row.createdAt),
+    updatedAt: formatDate(row.updatedAt),
+  };
+}
+
+function toLocationDto(row: LocationRow): LocationDto {
   return {
     id: row.id,
     name: row.name,

@@ -65,6 +65,19 @@ export const tags = sqliteTable(
   }),
 );
 
+export const locations = sqliteTable(
+  'locations',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => ({
+    nameIdx: uniqueIndex('locations_name_idx').on(table.name),
+  }),
+);
+
 export const deviceTags = sqliteTable(
   'device_tags',
   {
@@ -82,4 +95,5 @@ export const deviceTags = sqliteTable(
 
 export type DeviceRow = typeof devices.$inferSelect;
 export type TagRow = typeof tags.$inferSelect;
+export type LocationRow = typeof locations.$inferSelect;
 export type UserRow = typeof users.$inferSelect;

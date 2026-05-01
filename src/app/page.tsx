@@ -24,6 +24,13 @@ type Tag = {
   updatedAt: string;
 };
 
+type ManagedLocation = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type DeviceForm = Omit<Device, 'id' | 'createdAt' | 'updatedAt' | 'tags'> & {
   tagIds: string[];
 };
@@ -83,6 +90,7 @@ export default function Home() {
   const [locationFilter, setLocationFilter] = useState('전체');
   const [tagFilter, setTagFilter] = useState('전체');
   const [managedTags, setManagedTags] = useState<Tag[]>([]);
+  const [managedLocations, setManagedLocations] = useState<ManagedLocation[]>([]);
   const [sort, setSort] = useState('최근 수정순');
   const [form, setForm] = useState<DeviceForm>(emptyForm);
   const [scanState, setScanState] = useState<ScanState>('idle');
@@ -96,8 +104,16 @@ export default function Home() {
   }, []);
 
   const locations = useMemo(
-    () => ['전체', ...Array.from(new Set(devices.map((device) => device.location).filter(Boolean)))],
-    [devices],
+    () => [
+      '전체',
+      ...Array.from(
+        new Set([
+          ...managedLocations.map((location) => location.name),
+          ...devices.map((device) => device.location).filter(Boolean),
+        ]),
+      ),
+    ],
+    [devices, managedLocations],
   );
   const filterTags = useMemo<FilterOption[]>(
     () => [{ label: '전체', value: '전체' }, ...managedTags.map((tag) => ({ label: tag.name, value: tag.id }))],
@@ -147,6 +163,7 @@ export default function Home() {
         setIsAuthed(false);
         setDevices([]);
         setManagedTags([]);
+        setManagedLocations([]);
         return;
       }
 
@@ -158,20 +175,27 @@ export default function Home() {
   }
 
   async function loadData() {
-    const [devicesResponse, tagsResponse] = await Promise.all([fetch('/api/devices'), fetch('/api/tags')]);
+    const [devicesResponse, tagsResponse, locationsResponse] = await Promise.all([
+      fetch('/api/devices'),
+      fetch('/api/tags'),
+      fetch('/api/locations'),
+    ]);
 
-    if (!devicesResponse.ok || !tagsResponse.ok) {
+    if (!devicesResponse.ok || !tagsResponse.ok || !locationsResponse.ok) {
       setIsAuthed(false);
       setDevices([]);
       setManagedTags([]);
+      setManagedLocations([]);
       return;
     }
 
     const devicesPayload = (await devicesResponse.json()) as { devices: Device[] };
     const tagsPayload = (await tagsResponse.json()) as { tags: Tag[] };
+    const locationsPayload = (await locationsResponse.json()) as { locations: ManagedLocation[] };
 
     setDevices(devicesPayload.devices);
     setManagedTags(tagsPayload.tags);
+    setManagedLocations(locationsPayload.locations);
     setSelectedId((current) => current || devicesPayload.devices[0]?.id || '');
   }
 
@@ -288,6 +312,55 @@ export default function Home() {
 
     await handleMutationResponse(response, '태그를 삭제하고 기기 바인딩에서 제거했습니다.');
     setTagFilter((current) => (current === tagId ? '전체' : current));
+    await loadData();
+  }
+
+  async function addManagedLocation(location: string) {
+    const normalized = location.trim();
+
+    if (!normalized) {
+      showToast('위치 이름을 입력해 주세요.');
+      return;
+    }
+
+    const response = await fetch('/api/locations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: normalized }),
+    });
+
+    await handleMutationResponse(response, `${normalized} 위치를 추가했습니다.`);
+    await loadData();
+  }
+
+  async function renameManagedLocation(locationId: string, next: string) {
+    const normalized = next.trim();
+
+    if (!normalized) {
+      showToast('위치 이름을 입력해 주세요.');
+      return;
+    }
+
+    const response = await fetch(`/api/locations/${locationId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: normalized }),
+    });
+
+    await handleMutationResponse(response, `${normalized} 위치로 변경했습니다.`);
+    setLocationFilter((current) => {
+      const renamed = managedLocations.find((location) => location.id === locationId);
+      return renamed && current === renamed.name ? normalized : current;
+    });
+    await loadData();
+  }
+
+  async function deleteManagedLocation(locationId: string) {
+    const deleted = managedLocations.find((location) => location.id === locationId);
+    const response = await fetch(`/api/locations/${locationId}`, { method: 'DELETE' });
+
+    await handleMutationResponse(response, '위치를 삭제하고 연결된 기기의 위치를 비웠습니다.');
+    setLocationFilter((current) => (deleted && current === deleted.name ? '전체' : current));
     await loadData();
   }
 
@@ -437,6 +510,10 @@ export default function Home() {
           tagFilter={tagFilter}
           tags={filterTags}
           managedTags={managedTags}
+          managedLocations={managedLocations}
+          onAddLocation={addManagedLocation}
+          onDeleteLocation={deleteManagedLocation}
+          onRenameLocation={renameManagedLocation}
           onAddTag={addManagedTag}
           onDeleteTag={deleteManagedTag}
           onRenameTag={renameManagedTag}
@@ -469,6 +546,7 @@ export default function Home() {
             onSubmit={saveDevice}
             scanState={scanState}
             managedTags={managedTags}
+            managedLocations={managedLocations}
             toggleFormTag={toggleFormTag}
             updateForm={updateForm}
           />
@@ -574,9 +652,13 @@ function LoginScreen({
 function FilterPanel({
   locationFilter,
   locations,
+  managedLocations,
   managedTags,
+  onAddLocation,
   onAddTag,
+  onDeleteLocation,
   onDeleteTag,
+  onRenameLocation,
   onRenameTag,
   setLocationFilter,
   setSort,
@@ -587,9 +669,13 @@ function FilterPanel({
 }: {
   locationFilter: string;
   locations: string[];
+  managedLocations: ManagedLocation[];
   managedTags: Tag[];
+  onAddLocation: (location: string) => void;
   onAddTag: (tag: string) => void;
+  onDeleteLocation: (locationId: string) => void;
   onDeleteTag: (tagId: string) => void;
+  onRenameLocation: (locationId: string, next: string) => void;
   onRenameTag: (tagId: string, next: string) => void;
   setLocationFilter: (value: string) => void;
   setSort: (value: string) => void;
@@ -598,6 +684,9 @@ function FilterPanel({
   tagFilter: string;
   tags: FilterOption[];
 }) {
+  const [locationManagerOpen, setLocationManagerOpen] = useState(false);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
+
   return (
     <aside className="min-w-0 rounded-lg border border-zinc-200 bg-white p-4 lg:sticky lg:top-24 lg:self-start">
       <div className="flex items-center justify-between">
@@ -616,14 +705,38 @@ function FilterPanel({
       </div>
 
       <div className="mt-4 space-y-4">
-        <FilterGroup label="위치" options={locations} selected={locationFilter} onSelect={setLocationFilter} />
-        <FilterGroup label="태그" options={tags} selected={tagFilter} onSelect={setTagFilter} />
-        <TagManager
-          managedTags={managedTags}
-          onAddTag={onAddTag}
-          onDeleteTag={onDeleteTag}
-          onRenameTag={onRenameTag}
+        <FilterGroup
+          label="위치"
+          managerOpen={locationManagerOpen}
+          onToggleManager={() => setLocationManagerOpen((current) => !current)}
+          options={locations}
+          selected={locationFilter}
+          onSelect={setLocationFilter}
         />
+        {locationManagerOpen ? (
+          <LocationManager
+            managedLocations={managedLocations}
+            onAddLocation={onAddLocation}
+            onDeleteLocation={onDeleteLocation}
+            onRenameLocation={onRenameLocation}
+          />
+        ) : null}
+        <FilterGroup
+          label="태그"
+          managerOpen={tagManagerOpen}
+          onToggleManager={() => setTagManagerOpen((current) => !current)}
+          options={tags}
+          selected={tagFilter}
+          onSelect={setTagFilter}
+        />
+        {tagManagerOpen ? (
+          <TagManager
+            managedTags={managedTags}
+            onAddTag={onAddTag}
+            onDeleteTag={onDeleteTag}
+            onRenameTag={onRenameTag}
+          />
+        ) : null}
         <div>
           <label className="mb-1 block text-xs font-bold text-zinc-500" htmlFor="sort">
             정렬
@@ -737,20 +850,139 @@ function TagManager({
   );
 }
 
+function LocationManager({
+  managedLocations,
+  onAddLocation,
+  onDeleteLocation,
+  onRenameLocation,
+}: {
+  managedLocations: ManagedLocation[];
+  onAddLocation: (location: string) => void;
+  onDeleteLocation: (locationId: string) => void;
+  onRenameLocation: (locationId: string, next: string) => void;
+}) {
+  const [newLocation, setNewLocation] = useState('');
+  const [editingLocation, setEditingLocation] = useState('');
+  const [editingValue, setEditingValue] = useState('');
+
+  function submitNewLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onAddLocation(newLocation);
+    setNewLocation('');
+  }
+
+  function submitRename(event: FormEvent<HTMLFormElement>, locationId: string) {
+    event.preventDefault();
+    onRenameLocation(locationId, editingValue);
+    setEditingLocation('');
+    setEditingValue('');
+  }
+
+  return (
+    <section className="min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+      <div>
+        <h3 className="text-xs font-bold text-zinc-700">위치 관리</h3>
+        <p className="mt-1 text-xs leading-5 text-zinc-500">등록한 위치는 필터와 기기 등록/수정 입력에서 함께 사용됩니다.</p>
+      </div>
+
+      <form className="mt-3 flex min-w-0 gap-2" onSubmit={submitNewLocation}>
+        <label className="sr-only" htmlFor="new-location">
+          새 위치
+        </label>
+        <input
+          className={`${inputClass} min-w-0`}
+          id="new-location"
+          value={newLocation}
+          onChange={(event) => setNewLocation(event.target.value)}
+          placeholder="새 위치"
+        />
+        <button className="h-10 shrink-0 rounded-lg bg-zinc-900 px-3 text-xs font-bold text-white" type="submit">
+          추가
+        </button>
+      </form>
+
+      <div className="mt-3 space-y-2">
+        {managedLocations.map((location) =>
+          editingLocation === location.id ? (
+            <form
+              className="flex min-w-0 gap-2"
+              key={location.id}
+              onSubmit={(event) => submitRename(event, location.id)}
+            >
+              <input
+                className={`${inputClass} min-w-0`}
+                value={editingValue}
+                onChange={(event) => setEditingValue(event.target.value)}
+                autoFocus
+              />
+              <button className="h-10 shrink-0 rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white" type="submit">
+                저장
+              </button>
+            </form>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2 rounded-lg bg-white px-2 py-2" key={location.id}>
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-zinc-700">{location.name}</span>
+              <button
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-900"
+                type="button"
+                onClick={() => {
+                  setEditingLocation(location.id);
+                  setEditingValue(location.name);
+                }}
+              >
+                수정
+              </button>
+              <button
+                className="text-xs font-bold text-red-600 hover:text-red-800"
+                type="button"
+                onClick={() => onDeleteLocation(location.id)}
+              >
+                삭제
+              </button>
+            </div>
+          ),
+        )}
+      </div>
+    </section>
+  );
+}
+
 function FilterGroup({
   label,
+  managerOpen,
   onSelect,
+  onToggleManager,
   options,
   selected,
 }: {
   label: string;
+  managerOpen?: boolean;
   onSelect: (value: string) => void;
+  onToggleManager?: () => void;
   options: FilterOption[] | string[];
   selected: string;
 }) {
   return (
     <div className="min-w-0">
-      <p className="mb-2 text-xs font-bold text-zinc-500">{label}</p>
+      <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+        <p className="text-xs font-bold text-zinc-500">{label}</p>
+        {onToggleManager ? (
+          <button
+            className={`h-7 shrink-0 rounded-lg border px-2 text-xs font-bold transition ${
+              managerOpen
+                ? 'border-emerald-700 bg-emerald-50 text-emerald-800'
+                : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
+            }`}
+            type="button"
+            onClick={onToggleManager}
+            aria-expanded={managerOpen}
+            aria-label={`${label} 관리 ${managerOpen ? '닫기' : '열기'}`}
+            title={`${label} 관리`}
+          >
+            설정
+          </button>
+        ) : null}
+      </div>
       <div className="flex max-w-full gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible">
         {options.map((option) => {
           const value = typeof option === 'string' ? option : option.value;
@@ -918,6 +1150,7 @@ function DeviceDetail({
 function DeviceFormView({
   duplicateDevice,
   form,
+  managedLocations,
   managedTags,
   mode,
   onCancel,
@@ -930,6 +1163,7 @@ function DeviceFormView({
 }: {
   duplicateDevice?: Device;
   form: DeviceForm;
+  managedLocations: ManagedLocation[];
   managedTags: Tag[];
   mode: View;
   onCancel: () => void;
@@ -977,7 +1211,12 @@ function DeviceFormView({
             />
             <TextField label="제조사" value={form.manufacturer} onChange={(value) => updateForm('manufacturer', value)} />
             <TextField label="모델" value={form.model} onChange={(value) => updateForm('model', value)} />
-            <TextField label="위치" value={form.location} onChange={(value) => updateForm('location', value)} />
+            <TextField
+              label="위치"
+              value={form.location}
+              onChange={(value) => updateForm('location', value)}
+              options={managedLocations.map((location) => location.name)}
+            />
           </div>
           <TagBinder managedTags={managedTags} selectedTagIds={form.tagIds} onToggleTag={toggleFormTag} />
           <div>
@@ -1238,17 +1477,20 @@ function ScanPanel({
 function TextField({
   label,
   onChange,
+  options,
   placeholder,
   required,
   value,
 }: {
   label: string;
   onChange: (value: string) => void;
+  options?: string[];
   placeholder?: string;
   required?: boolean;
   value: string;
 }) {
   const id = label.replace(/\s+/g, '-');
+  const listId = options?.length ? `${id}-options` : undefined;
 
   return (
     <div>
@@ -1259,11 +1501,19 @@ function TextField({
       <input
         className={inputClass}
         id={id}
+        list={listId}
         placeholder={placeholder}
         required={required}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+      {listId ? (
+        <datalist id={listId}>
+          {options?.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      ) : null}
     </div>
   );
 }

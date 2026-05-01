@@ -28,8 +28,8 @@
    - 로그인 성공 시 랜덤 session token을 발급하고 DB에는 HMAC 또는 hash된 세션 값만 저장한다.
    - 쿠키는 `HttpOnly`, `SameSite=Strict`, production에서 `Secure`로 설정한다.
 3. API Route Handler를 만든다.
-   - `/api/auth/*`, `/api/devices*`, `/api/tags*`, `/api/export`를 구현한다.
-   - 모든 devices/tags/export API는 세션 검증을 먼저 수행한다.
+   - `/api/auth/*`, `/api/devices*`, `/api/tags*`, `/api/locations*`, `/api/export`를 구현한다.
+   - 모든 devices/tags/locations/export API는 세션 검증을 먼저 수행한다.
    - 입력은 zod로 검증한다.
 4. UI를 API 기반으로 전환한다.
    - mock 배열 초기값을 제거하고, 로그인 후 API에서 devices/tags/session을 가져온다.
@@ -78,6 +78,15 @@
 - `name`: text unique not null
 - `createdAt`: integer unix epoch milliseconds
 - `updatedAt`: integer unix epoch milliseconds
+
+### locations
+
+- `id`: text primary key
+- `name`: text unique not null
+- `createdAt`: integer unix epoch milliseconds
+- `updatedAt`: integer unix epoch milliseconds
+
+위치 이름 변경은 `locations.name`을 바꾸고, 같은 이름을 쓰는 `devices.location`도 함께 갱신한다. 위치 삭제 시 연결된 기기의 `devices.location`은 빈 값으로 비운다.
 
 ### device_tags
 
@@ -130,6 +139,19 @@
 - `DELETE /api/tags/[id]`
   - tag와 device 바인딩 삭제
 
+### Locations
+
+- `GET /api/locations`
+  - response: `{ locations }`
+- `POST /api/locations`
+  - body: `{ name }`
+  - 중복 이름은 409
+- `PATCH /api/locations/[id]`
+  - body: `{ name }`
+  - 중복 이름은 409
+- `DELETE /api/locations/[id]`
+  - location 삭제 후 해당 위치를 쓰던 device의 `location` 비움
+
 ### Export
 
 - `GET /api/export?format=json`
@@ -146,6 +168,7 @@ Export도 로그인 세션이 필요하다. 비밀번호 해시와 세션 정보
 - 로그인 상태면 `/api/devices`, `/api/tags`를 호출한다.
 - 목록 필터는 v1에서 클라이언트 필터를 유지해도 되지만, API query도 받을 수 있게 둔다.
 - 태그 관리는 `/api/tags`를 통해 추가/수정/삭제한다.
+- 위치 관리는 `/api/locations`를 통해 추가/수정/삭제한다.
 - 기기 등록/수정 폼의 태그 바인딩은 `tagIds` 배열로 전송한다.
 - 생성/수정/삭제 후에는 devices/tags를 재조회한다.
 - optimistic update는 v1에서 사용하지 않는다.

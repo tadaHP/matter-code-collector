@@ -21,6 +21,10 @@ export const tagSchema = z.object({
   name: z.string().min(1, '태그 이름은 필수입니다.').trim(),
 });
 
+export const locationSchema = z.object({
+  name: z.string().min(1, '위치 이름은 필수입니다.').trim(),
+});
+
 export function parseJson<T>(schema: z.ZodType<T>, value: unknown) {
   const parsed = schema.safeParse(value);
 
