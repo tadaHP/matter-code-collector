@@ -10,16 +10,22 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.9.0",
+    "drizzle-orm": "^0.45.2",
     "next": "16.2.4",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "zod": "^4.4.1"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "^16.2.4",
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "eslint-config-prettier": "^10.1.8",

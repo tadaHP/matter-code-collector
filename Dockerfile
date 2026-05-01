@@ -3,7 +3,7 @@
 FROM node:22-alpine AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN corepack enable
+RUN apk add --no-cache python3 make g++ && corepack enable
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -22,7 +22,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
+RUN addgroup -S nodejs && adduser -S nextjs -G nodejs && mkdir -p /data && chown nextjs:nodejs /data
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

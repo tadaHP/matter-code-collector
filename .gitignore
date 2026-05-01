@@ -17,6 +17,12 @@ build/
 coverage/
 *.tsbuildinfo
 
+# Local SQLite data
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # Deployment
 .vercel/
 

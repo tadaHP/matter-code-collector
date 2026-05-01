@@ -11,13 +11,27 @@ type Device = {
   manufacturer: string;
   model: string;
   location: string;
-  tags: string[];
+  tags: Tag[];
   notes: string;
   createdAt: string;
   updatedAt: string;
 };
 
-type DeviceForm = Omit<Device, 'id' | 'createdAt' | 'updatedAt'>;
+type Tag = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type DeviceForm = Omit<Device, 'id' | 'createdAt' | 'updatedAt' | 'tags'> & {
+  tagIds: string[];
+};
+
+type FilterOption = {
+  label: string;
+  value: string;
+};
 
 type View = 'list' | 'create' | 'edit';
 type ScanState = 'idle' | 'requesting' | 'success' | 'denied' | 'unsupported' | 'insecure';
@@ -37,53 +51,6 @@ type WindowWithBarcodeDetector = Window &
     BarcodeDetector?: BarcodeDetectorConstructor;
   };
 
-const initialDevices: Device[] = [
-  {
-    id: 'device-1',
-    alias: '거실 전구',
-    deviceName: 'Matter Smart Bulb A19',
-    qrPayload: 'MT:Y.K90SO527E62G00',
-    numericCode: '34970112332',
-    manufacturer: 'Nanoleaf',
-    model: 'Essentials A19',
-    location: '거실',
-    tags: ['조명', '거실', 'Thread'],
-    notes: '소파 옆 스탠드에 연결된 전구. 재페어링 시 이 코드 사용.',
-    createdAt: '2026-04-25 21:12',
-    updatedAt: '2026-04-28 09:40',
-  },
-  {
-    id: 'device-2',
-    alias: '침실 플러그',
-    deviceName: 'Smart Plug Mini',
-    qrPayload: 'MT:8IXS142C00KA0648G00',
-    numericCode: '02174201577',
-    manufacturer: 'Eve',
-    model: 'Energy Matter',
-    location: '침실',
-    tags: ['플러그', '전력', '침실'],
-    notes: '침대 왼쪽 콘센트.',
-    createdAt: '2026-04-20 18:30',
-    updatedAt: '2026-04-20 18:30',
-  },
-  {
-    id: 'device-3',
-    alias: '현관 센서',
-    deviceName: 'Door and Window Sensor',
-    qrPayload: 'MT:4CT9D9Q00ADJ0648G00',
-    numericCode: '10034567890',
-    manufacturer: 'Aqara',
-    model: 'P2',
-    location: '현관',
-    tags: ['센서', '보안', '현관'],
-    notes: '현관문 상단 부착.',
-    createdAt: '2026-04-11 08:05',
-    updatedAt: '2026-04-18 22:15',
-  },
-];
-
-const initialManagedTags = ['조명', '거실', 'Thread', '플러그', '전력', '침실', '센서', '보안', '현관'];
-
 const emptyForm: DeviceForm = {
   alias: '',
   deviceName: '',
@@ -92,7 +59,7 @@ const emptyForm: DeviceForm = {
   manufacturer: '',
   model: '',
   location: '',
-  tags: [],
+  tagIds: [],
   notes: '',
 };
 
@@ -106,28 +73,36 @@ const inputClass =
   'h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100';
 
 export default function Home() {
-  const [isAuthed, setIsAuthed] = useState(false);
+  const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [devices, setDevices] = useState(initialDevices);
-  const [selectedId, setSelectedId] = useState(initialDevices[0]?.id ?? '');
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [selectedId, setSelectedId] = useState('');
   const [view, setView] = useState<View>('list');
   const [query, setQuery] = useState('');
   const [locationFilter, setLocationFilter] = useState('전체');
   const [tagFilter, setTagFilter] = useState('전체');
-  const [managedTags, setManagedTags] = useState(initialManagedTags);
+  const [managedTags, setManagedTags] = useState<Tag[]>([]);
   const [sort, setSort] = useState('최근 수정순');
   const [form, setForm] = useState<DeviceForm>(emptyForm);
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [toast, setToast] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Device | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    void loadSession();
+  }, []);
 
   const locations = useMemo(
     () => ['전체', ...Array.from(new Set(devices.map((device) => device.location).filter(Boolean)))],
     [devices],
   );
-  const filterTags = useMemo(() => ['전체', ...managedTags], [managedTags]);
+  const filterTags = useMemo<FilterOption[]>(
+    () => [{ label: '전체', value: '전체' }, ...managedTags.map((tag) => ({ label: tag.name, value: tag.id }))],
+    [managedTags],
+  );
 
   const filteredDevices = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -141,13 +116,13 @@ export default function Home() {
         device.model,
         device.location,
         device.notes,
-        device.tags.join(' '),
+        device.tags.map((tag) => tag.name).join(' '),
       ]
         .join(' ')
         .toLowerCase();
       const matchesQuery = !normalizedQuery || text.includes(normalizedQuery);
       const matchesLocation = locationFilter === '전체' || device.location === locationFilter;
-      const matchesTag = tagFilter === '전체' || device.tags.includes(tagFilter);
+      const matchesTag = tagFilter === '전체' || device.tags.some((tag) => tag.id === tagFilter);
 
       return matchesQuery && matchesLocation && matchesTag;
     });
@@ -162,30 +137,76 @@ export default function Home() {
   const selectedDevice =
     devices.find((device) => device.id === selectedId) ?? filteredDevices[0] ?? devices[0] ?? null;
 
+  async function loadSession() {
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/session');
+
+      if (!response.ok) {
+        setIsAuthed(false);
+        setDevices([]);
+        setManagedTags([]);
+        return;
+      }
+
+      setIsAuthed(true);
+      await loadData();
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function loadData() {
+    const [devicesResponse, tagsResponse] = await Promise.all([fetch('/api/devices'), fetch('/api/tags')]);
+
+    if (!devicesResponse.ok || !tagsResponse.ok) {
+      setIsAuthed(false);
+      setDevices([]);
+      setManagedTags([]);
+      return;
+    }
+
+    const devicesPayload = (await devicesResponse.json()) as { devices: Device[] };
+    const tagsPayload = (await tagsResponse.json()) as { tags: Tag[] };
+
+    setDevices(devicesPayload.devices);
+    setManagedTags(tagsPayload.tags);
+    setSelectedId((current) => current || devicesPayload.devices[0]?.id || '');
+  }
+
   function showToast(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(''), 2400);
   }
 
-  function handleLogin(event: FormEvent<HTMLFormElement>) {
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
+    const username = String(formData.get('loginId') ?? '');
     const password = String(formData.get('password') ?? '');
 
     setIsLoggingIn(true);
     setLoginError('');
 
-    window.setTimeout(() => {
-      if (password.toLowerCase() === 'fail') {
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!response.ok) {
         setLoginError('로그인 정보를 확인해 주세요.');
-        setIsLoggingIn(false);
         return;
       }
 
       setIsAuthed(true);
+      await loadData();
+      showToast('로그인되었습니다.');
+    } finally {
       setIsLoggingIn(false);
-      showToast('Mock 로그인 완료');
-    }, 500);
+    }
   }
 
   function startCreate() {
@@ -203,7 +224,7 @@ export default function Home() {
       manufacturer: device.manufacturer,
       model: device.model,
       location: device.location,
-      tags: device.tags,
+      tagIds: device.tags.map((tag) => tag.id),
       notes: device.notes,
     });
     setScanState('idle');
@@ -217,14 +238,16 @@ export default function Home() {
     }));
   }
 
-  function toggleFormTag(tag: string) {
+  function toggleFormTag(tagId: string) {
     setForm((current) => ({
       ...current,
-      tags: current.tags.includes(tag) ? current.tags.filter((item) => item !== tag) : [...current.tags, tag],
+      tagIds: current.tagIds.includes(tagId)
+        ? current.tagIds.filter((item) => item !== tagId)
+        : [...current.tagIds, tagId],
     }));
   }
 
-  function addManagedTag(tag: string) {
+  async function addManagedTag(tag: string) {
     const normalized = tag.trim();
 
     if (!normalized) {
@@ -232,16 +255,17 @@ export default function Home() {
       return;
     }
 
-    if (managedTags.includes(normalized)) {
-      showToast('이미 등록된 태그입니다.');
-      return;
-    }
+    const response = await fetch('/api/tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: normalized }),
+    });
 
-    setManagedTags((current) => [...current, normalized]);
-    showToast(`${normalized} 태그를 추가했습니다.`);
+    await handleMutationResponse(response, `${normalized} 태그를 추가했습니다.`);
+    await loadData();
   }
 
-  function renameManagedTag(previous: string, next: string) {
+  async function renameManagedTag(tagId: string, next: string) {
     const normalized = next.trim();
 
     if (!normalized) {
@@ -249,40 +273,22 @@ export default function Home() {
       return;
     }
 
-    if (previous !== normalized && managedTags.includes(normalized)) {
-      showToast('이미 등록된 태그입니다.');
-      return;
-    }
+    const response = await fetch(`/api/tags/${tagId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: normalized }),
+    });
 
-    setManagedTags((current) => current.map((tag) => (tag === previous ? normalized : tag)));
-    setDevices((current) =>
-      current.map((device) => ({
-        ...device,
-        tags: device.tags.map((tag) => (tag === previous ? normalized : tag)),
-      })),
-    );
-    setForm((current) => ({
-      ...current,
-      tags: current.tags.map((tag) => (tag === previous ? normalized : tag)),
-    }));
-    setTagFilter((current) => (current === previous ? normalized : current));
-    showToast(`${previous} 태그를 ${normalized}(으)로 변경했습니다.`);
+    await handleMutationResponse(response, `${normalized} 태그로 변경했습니다.`);
+    await loadData();
   }
 
-  function deleteManagedTag(tag: string) {
-    setManagedTags((current) => current.filter((item) => item !== tag));
-    setDevices((current) =>
-      current.map((device) => ({
-        ...device,
-        tags: device.tags.filter((item) => item !== tag),
-      })),
-    );
-    setForm((current) => ({
-      ...current,
-      tags: current.tags.filter((item) => item !== tag),
-    }));
-    setTagFilter((current) => (current === tag ? '전체' : current));
-    showToast(`${tag} 태그를 삭제하고 기기 바인딩에서 제거했습니다.`);
+  async function deleteManagedTag(tagId: string) {
+    const response = await fetch(`/api/tags/${tagId}`, { method: 'DELETE' });
+
+    await handleMutationResponse(response, '태그를 삭제하고 기기 바인딩에서 제거했습니다.');
+    setTagFilter((current) => (current === tagId ? '전체' : current));
+    await loadData();
   }
 
   function handleScanState(nextState: ScanState) {
@@ -298,53 +304,29 @@ export default function Home() {
     showToast('실제 QR 스캔값이 등록 폼에 적용되었습니다.');
   }
 
-  function saveDevice(event: FormEvent<HTMLFormElement>) {
+  async function saveDevice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const editingId = view === 'edit' ? selectedDevice?.id : undefined;
 
     if (!form.alias.trim() || !form.qrPayload.trim() || !form.numericCode.trim()) {
       showToast('별명, QR 인식값, 숫자 코드는 필수입니다.');
       return;
     }
 
-    const duplicate = devices.find(
-      (device) =>
-        (device.qrPayload === form.qrPayload || device.numericCode === form.numericCode) &&
-        device.id !== editingId,
+    const url = view === 'edit' && selectedDevice ? `/api/devices/${selectedDevice.id}` : '/api/devices';
+    const response = await fetch(url, {
+      method: view === 'edit' ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form),
+    });
+
+    const payload = await handleMutationResponse<{ device: Device }>(
+      response,
+      view === 'edit' ? '기기를 수정했습니다.' : '새 기기를 등록했습니다.',
     );
 
-    if (duplicate) {
-      showToast(`${duplicate.alias}와 중복 가능성이 있습니다. 저장은 mock으로 계속 진행합니다.`);
-    }
-
-    const timestamp = '2026-05-01 15:20';
-
-    if (view === 'edit' && selectedDevice) {
-      const updatedDevice: Device = {
-        ...selectedDevice,
-        ...form,
-        tags: form.tags,
-        updatedAt: timestamp,
-      };
-      setDevices((current) => current.map((device) => (device.id === selectedDevice.id ? updatedDevice : device)));
-      setSelectedId(updatedDevice.id);
-      setView('list');
-      showToast('수정된 것처럼 저장했습니다.');
-      return;
-    }
-
-    const newDevice: Device = {
-      ...form,
-      id: `device-${Date.now()}`,
-      tags: form.tags,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-
-    setDevices((current) => [newDevice, ...current]);
-    setSelectedId(newDevice.id);
+    if (payload?.device) setSelectedId(payload.device.id);
     setView('list');
-    showToast('새 기기가 추가된 것처럼 저장했습니다.');
+    await loadData();
   }
 
   async function copyValue(label: string, value: string) {
@@ -356,16 +338,59 @@ export default function Home() {
     }
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!deleteTarget) return;
 
-    setDevices((current) => current.filter((device) => device.id !== deleteTarget.id));
-    setSelectedId((current) => {
-      if (current !== deleteTarget.id) return current;
-      return devices.find((device) => device.id !== deleteTarget.id)?.id ?? '';
-    });
+    const deletedId = deleteTarget.id;
+    const response = await fetch(`/api/devices/${deletedId}`, { method: 'DELETE' });
+
+    await handleMutationResponse(response, '기기를 삭제했습니다.');
     setDeleteTarget(null);
-    showToast('삭제된 것처럼 목록에서 제거했습니다.');
+    setSelectedId((current) => {
+      if (current !== deletedId) return current;
+      return devices.find((device) => device.id !== deletedId)?.id ?? '';
+    });
+    await loadData();
+  }
+
+  async function exportData(format: 'JSON' | 'CSV') {
+    const response = await fetch(`/api/export?format=${format.toLowerCase()}`);
+
+    if (!response.ok) {
+      await handleMutationResponse(response, '');
+      return;
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = format === 'JSON' ? 'matter-code-collector.json' : 'matter-devices.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast(`${format} 백업 파일을 내려받았습니다.`);
+  }
+
+  async function handleMutationResponse<T = unknown>(response: Response, successMessage: string) {
+    const payload = (await response.json().catch(() => null)) as (T & { message?: string }) | null;
+
+    if (!response.ok) {
+      showToast(payload?.message ?? '요청을 처리하지 못했습니다.');
+      return null;
+    }
+
+    if (successMessage) showToast(successMessage);
+    return payload;
+  }
+
+  if (isLoading || isAuthed === null) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-zinc-100 px-4 text-zinc-950">
+        <p className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold shadow-sm">
+          앱 상태를 확인하는 중입니다...
+        </p>
+      </main>
+    );
   }
 
   if (!isAuthed) {
@@ -481,7 +506,7 @@ export default function Home() {
           onClose={() => setExportOpen(false)}
           onExport={(format) => {
             setExportOpen(false);
-            showToast(`${format} 백업 파일이 준비된 것처럼 표시했습니다.`);
+            void exportData(format);
           }}
         />
       ) : null}
@@ -516,9 +541,9 @@ function LoginScreen({
             </label>
             <input
               className={inputClass}
-              defaultValue="owner@example.local"
               id="login-id"
               name="loginId"
+              placeholder="예: admin"
               type="text"
             />
           </div>
@@ -526,7 +551,7 @@ function LoginScreen({
             <label className="mb-1 block text-sm font-semibold text-zinc-800" htmlFor="password">
               비밀번호
             </label>
-            <input className={inputClass} defaultValue="mock-password" id="password" name="password" type="password" />
+            <input className={inputClass} id="password" name="password" placeholder="예: change-me" type="password" />
           </div>
           {error ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
@@ -539,7 +564,7 @@ function LoginScreen({
         </form>
 
         <div className="mt-6 rounded-lg bg-zinc-50 p-3 text-xs leading-5 text-zinc-600">
-          공개 회원가입 없이 개인 계정으로만 접근하는 mock 화면입니다. 비밀번호에 `fail`을 입력하면 실패 상태를 볼 수 있습니다.
+          공개 회원가입 없이 개인 계정으로만 접근합니다. 개발 기본 계정은 `admin / admin`입니다.
         </div>
       </section>
     </main>
@@ -562,16 +587,16 @@ function FilterPanel({
 }: {
   locationFilter: string;
   locations: string[];
-  managedTags: string[];
+  managedTags: Tag[];
   onAddTag: (tag: string) => void;
-  onDeleteTag: (tag: string) => void;
-  onRenameTag: (previous: string, next: string) => void;
+  onDeleteTag: (tagId: string) => void;
+  onRenameTag: (tagId: string, next: string) => void;
   setLocationFilter: (value: string) => void;
   setSort: (value: string) => void;
   setTagFilter: (value: string) => void;
   sort: string;
   tagFilter: string;
-  tags: string[];
+  tags: FilterOption[];
 }) {
   return (
     <aside className="min-w-0 rounded-lg border border-zinc-200 bg-white p-4 lg:sticky lg:top-24 lg:self-start">
@@ -625,10 +650,10 @@ function TagManager({
   onDeleteTag,
   onRenameTag,
 }: {
-  managedTags: string[];
+  managedTags: Tag[];
   onAddTag: (tag: string) => void;
-  onDeleteTag: (tag: string) => void;
-  onRenameTag: (previous: string, next: string) => void;
+  onDeleteTag: (tagId: string) => void;
+  onRenameTag: (tagId: string, next: string) => void;
 }) {
   const [newTag, setNewTag] = useState('');
   const [editingTag, setEditingTag] = useState('');
@@ -672,8 +697,8 @@ function TagManager({
 
       <div className="mt-3 space-y-2">
         {managedTags.map((tag) =>
-          editingTag === tag ? (
-            <form className="flex min-w-0 gap-2" key={tag} onSubmit={(event) => submitRename(event, tag)}>
+          editingTag === tag.id ? (
+            <form className="flex min-w-0 gap-2" key={tag.id} onSubmit={(event) => submitRename(event, tag.id)}>
               <input
                 className={`${inputClass} min-w-0`}
                 value={editingValue}
@@ -685,14 +710,14 @@ function TagManager({
               </button>
             </form>
           ) : (
-            <div className="flex min-w-0 items-center gap-2 rounded-lg bg-white px-2 py-2" key={tag}>
-              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-zinc-700">{tag}</span>
+            <div className="flex min-w-0 items-center gap-2 rounded-lg bg-white px-2 py-2" key={tag.id}>
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-zinc-700">{tag.name}</span>
               <button
                 className="text-xs font-bold text-emerald-700 hover:text-emerald-900"
                 type="button"
                 onClick={() => {
-                  setEditingTag(tag);
-                  setEditingValue(tag);
+                  setEditingTag(tag.id);
+                  setEditingValue(tag.name);
                 }}
               >
                 수정
@@ -700,7 +725,7 @@ function TagManager({
               <button
                 className="text-xs font-bold text-red-600 hover:text-red-800"
                 type="button"
-                onClick={() => onDeleteTag(tag)}
+                onClick={() => onDeleteTag(tag.id)}
               >
                 삭제
               </button>
@@ -720,27 +745,32 @@ function FilterGroup({
 }: {
   label: string;
   onSelect: (value: string) => void;
-  options: string[];
+  options: FilterOption[] | string[];
   selected: string;
 }) {
   return (
     <div className="min-w-0">
       <p className="mb-2 text-xs font-bold text-zinc-500">{label}</p>
       <div className="flex max-w-full gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible">
-        {options.map((option) => (
-          <button
-            className={`h-8 shrink-0 rounded-lg border px-3 text-xs font-semibold transition ${
-              selected === option
-                ? 'border-emerald-700 bg-emerald-50 text-emerald-800'
-                : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
-            }`}
-            key={option}
-            type="button"
-            onClick={() => onSelect(option)}
-          >
-            {option}
-          </button>
-        ))}
+        {options.map((option) => {
+          const value = typeof option === 'string' ? option : option.value;
+          const labelText = typeof option === 'string' ? option : option.label;
+
+          return (
+            <button
+              className={`h-8 shrink-0 rounded-lg border px-3 text-xs font-semibold transition ${
+                selected === value
+                  ? 'border-emerald-700 bg-emerald-50 text-emerald-800'
+                  : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
+              }`}
+              key={value}
+              type="button"
+              onClick={() => onSelect(value)}
+            >
+              {labelText}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -807,8 +837,8 @@ function DeviceList({
                 </div>
                 <div className="flex flex-wrap gap-2 xl:justify-end">
                   {device.tags.map((tag) => (
-                    <span className="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800" key={tag}>
-                      {tag}
+                    <span className="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800" key={tag.id}>
+                      {tag.name}
                     </span>
                   ))}
                 </div>
@@ -865,8 +895,8 @@ function DeviceDetail({
 
       <div className="mt-4 flex flex-wrap gap-2">
         {device.tags.map((tag) => (
-          <span className="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800" key={tag}>
-            {tag}
+          <span className="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800" key={tag.id}>
+            {tag.name}
           </span>
         ))}
       </div>
@@ -900,14 +930,14 @@ function DeviceFormView({
 }: {
   duplicateDevice?: Device;
   form: DeviceForm;
-  managedTags: string[];
+  managedTags: Tag[];
   mode: View;
   onCancel: () => void;
   onScanResult: (value: string) => void;
   onScanState: (state: ScanState) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   scanState: ScanState;
-  toggleFormTag: (tag: string) => void;
+  toggleFormTag: (tagId: string) => void;
   updateForm: (field: keyof DeviceForm, value: string) => void;
 }) {
   const isEdit = mode === 'edit';
@@ -949,7 +979,7 @@ function DeviceFormView({
             <TextField label="모델" value={form.model} onChange={(value) => updateForm('model', value)} />
             <TextField label="위치" value={form.location} onChange={(value) => updateForm('location', value)} />
           </div>
-          <TagBinder managedTags={managedTags} selectedTags={form.tags} onToggleTag={toggleFormTag} />
+          <TagBinder managedTags={managedTags} selectedTagIds={form.tagIds} onToggleTag={toggleFormTag} />
           <div>
             <label className="mb-1 block text-sm font-semibold text-zinc-800" htmlFor="notes">
               메모
@@ -999,11 +1029,11 @@ function DeviceFormView({
 function TagBinder({
   managedTags,
   onToggleTag,
-  selectedTags,
+  selectedTagIds,
 }: {
-  managedTags: string[];
-  onToggleTag: (tag: string) => void;
-  selectedTags: string[];
+  managedTags: Tag[];
+  onToggleTag: (tagId: string) => void;
+  selectedTagIds: string[];
 }) {
   return (
     <section className="min-w-0 rounded-lg border border-zinc-200 p-3">
@@ -1012,7 +1042,7 @@ function TagBinder({
           <h3 className="text-sm font-semibold text-zinc-800">태그 바인딩</h3>
           <p className="text-xs text-zinc-500">좌측 태그 관리에서 등록된 태그를 선택합니다.</p>
         </div>
-        <span className="text-xs font-bold text-emerald-700">{selectedTags.length}개 선택</span>
+        <span className="text-xs font-bold text-emerald-700">{selectedTagIds.length}개 선택</span>
       </div>
 
       {managedTags.length === 0 ? (
@@ -1022,7 +1052,7 @@ function TagBinder({
       ) : (
         <div className="mt-3 flex min-w-0 flex-wrap gap-2">
           {managedTags.map((tag) => {
-            const checked = selectedTags.includes(tag);
+            const checked = selectedTagIds.includes(tag.id);
 
             return (
               <label
@@ -1031,15 +1061,15 @@ function TagBinder({
                     ? 'border-emerald-700 bg-emerald-50 text-emerald-800'
                     : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
                 }`}
-                key={tag}
+                key={tag.id}
               >
                 <input
                   checked={checked}
                   className="h-4 w-4 accent-emerald-700"
                   type="checkbox"
-                  onChange={() => onToggleTag(tag)}
+                  onChange={() => onToggleTag(tag.id)}
                 />
-                {tag}
+                {tag.name}
               </label>
             );
           })}

@@ -7,3 +7,4 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- END:nextjs-agent-rules -->
 
 Project harness: docs/matter-code-collector/requirements.md
+SQLite/API implementation guide: docs/matter-code-collector/implementation/sqlite-api.md
