@@ -36,3 +36,6 @@ coverage/
 # VS Code
 .vscode/
 *.code-workspace
+
+# Local tool settings
+.playwright/
