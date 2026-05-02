@@ -180,6 +180,8 @@ Export도 로그인 세션이 필요하다. 비밀번호 해시와 세션 정보
 - 환경변수는 서버 계층에서만 읽는다.
 - `AUTH_SECRET`은 세션 토큰 hash/HMAC에 사용한다.
 - production에서 `AUTH_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `MATTER_SQLITE_PATH` 누락 시 앱이 명확한 오류로 실패해야 한다.
+- `MATTER_COOKIE_TRANSPORT=https-only`는 production 세션 쿠키에 `Secure`를 붙여 HTTPS에서만 로그인 세션을 허용한다.
+- `MATTER_COOKIE_TRANSPORT=http-and-https`는 production 세션 쿠키의 `Secure`를 끄고 HTTP와 HTTPS 모두에서 로그인 세션을 허용한다. 개인 내부망용 예외이며, 카메라 스캔은 브라우저 정책상 여전히 HTTPS 또는 localhost가 필요하다.
 - 로그인 실패 메시지는 계정 존재 여부를 드러내지 않는다.
 - 모든 mutation API는 세션 검증 후 입력 검증을 수행한다.
 - 모든 DB 쿼리는 Drizzle query builder 또는 parameterized query를 사용한다.
@@ -195,6 +197,7 @@ MATTER_SQLITE_PATH=./data/dev.sqlite
 AUTH_SECRET=replace-with-long-random-secret
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me
+MATTER_COOKIE_TRANSPORT=https-only
 ```
 
 Docker 운영 예시:
@@ -204,6 +207,7 @@ MATTER_SQLITE_PATH=/data/matter-code-collector.sqlite
 AUTH_SECRET=replace-with-long-random-secret
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me-before-first-run
+MATTER_COOKIE_TRANSPORT=https-only
 ```
 
 `.env*` 파일은 프로젝트 루트에만 둔다. `/src` 내부에 두지 않는다.

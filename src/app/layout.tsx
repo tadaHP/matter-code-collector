@@ -4,6 +4,9 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'matter-code-collector',
   description: 'Matter code collection app',
+  icons: {
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml', sizes: 'any' }],
+  },
 };
 
 export default function RootLayout({

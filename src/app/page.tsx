@@ -1,6 +1,6 @@
 'use client';
 
-import type { IScannerControls } from '@zxing/browser';
+import { BrowserQRCodeSvgWriter, type IScannerControls } from '@zxing/browser';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 type Device = {
@@ -1097,7 +1097,7 @@ function DeviceDetail({
         </span>
       </div>
 
-      <QrPlaceholder value={device.qrPayload} />
+      <QrCodeDisplay value={device.qrPayload} />
 
       <div className="mt-4 space-y-3">
         <CopyRow label="QR 인식값" value={device.qrPayload} onCopy={onCopy} />
@@ -1552,20 +1552,44 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QrPlaceholder({ value }: { value: string }) {
-  const cells = Array.from({ length: 49 }, (_, index) => {
-    const char = value.charCodeAt(index % Math.max(value.length, 1)) || index;
-    return (char + index) % 3 !== 0;
-  });
+function QrCodeDisplay({ value }: { value: string }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.replaceChildren();
+    setHasError(false);
+
+    if (!value) return;
+
+    try {
+      const writer = new BrowserQRCodeSvgWriter();
+      const svg = writer.write(value, 240, 240);
+      svg.setAttribute('aria-label', 'Matter QR 코드');
+      svg.setAttribute('class', 'h-full w-full');
+      svg.setAttribute('role', 'img');
+      svg.setAttribute('shape-rendering', 'crispEdges');
+      container.appendChild(svg);
+    } catch {
+      setHasError(true);
+    }
+  }, [value]);
 
   return (
     <div className="mt-5 rounded-lg border border-zinc-200 bg-white p-4">
-      <div className="mx-auto grid aspect-square w-full max-w-52 grid-cols-7 gap-1 rounded-lg bg-zinc-100 p-3">
-        {cells.map((filled, index) => (
-          <span className={`rounded-sm ${filled ? 'bg-zinc-950' : 'bg-white'}`} key={index} />
-        ))}
-      </div>
-      <p className="mt-3 text-center text-xs font-medium text-zinc-500">QR 코드 mock 표시</p>
+      <div
+        className={`mx-auto aspect-square w-full max-w-60 rounded-lg bg-white ${hasError ? 'hidden' : ''}`}
+        ref={containerRef}
+      />
+      {hasError ? (
+        <p className="rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">
+          QR 인식값이 너무 길어 QR 코드로 표시할 수 없습니다.
+        </p>
+      ) : null}
+      <p className="mt-3 text-center text-xs font-medium text-zinc-500">저장된 QR 인식값을 실제 QR 코드로 표시합니다.</p>
     </div>
   );
 }

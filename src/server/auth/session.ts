@@ -101,7 +101,7 @@ export function setSessionCookie(response: NextResponse, token: string) {
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureSessionCookie(),
     path: '/',
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
@@ -111,7 +111,7 @@ export function clearSessionCookie(response: NextResponse) {
   response.cookies.set(SESSION_COOKIE, '', {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureSessionCookie(),
     path: '/',
     maxAge: 0,
   });
@@ -134,6 +134,12 @@ function getAuthSecret() {
   }
 
   return 'development-only-auth-secret';
+}
+
+function shouldUseSecureSessionCookie() {
+  if (process.env.NODE_ENV !== 'production') return false;
+
+  return process.env.MATTER_COOKIE_TRANSPORT !== 'http-and-https';
 }
 
 function toSafeUser(user: { id: string; username: string; role: string }): SafeUser {
