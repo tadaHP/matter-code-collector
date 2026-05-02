@@ -53,11 +53,15 @@ function getSqlitePath() {
     return resolve(configuredPath);
   }
 
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('MATTER_SQLITE_PATH is required in production.');
+  if (process.env.MATTER_DATA_PATH) {
+    return resolve(process.env.MATTER_DATA_PATH, 'sqlite/matter-code-collector.sqlite');
   }
 
-  return resolve(process.cwd(), 'data/dev.sqlite');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('MATTER_DATA_PATH or MATTER_SQLITE_PATH is required in production.');
+  }
+
+  return resolve(process.cwd(), 'data/sqlite/dev.sqlite');
 }
 
 function migrate(sqlite: Database.Database) {

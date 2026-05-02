@@ -1,6 +1,7 @@
 'use client';
 
 import { BrowserQRCodeSvgWriter, type IScannerControls } from '@zxing/browser';
+import { X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 type Device = {
@@ -42,7 +43,7 @@ type FilterOption = {
 };
 
 type View = 'list' | 'create' | 'edit';
-type ScanState = 'idle' | 'requesting' | 'success' | 'denied' | 'unsupported' | 'insecure';
+type ScanState = 'idle' | 'requesting' | 'success' | 'denied' | 'blocked' | 'unsupported' | 'insecure';
 
 const emptyForm: DeviceForm = {
   alias: '',
@@ -74,6 +75,7 @@ export default function Home() {
   const [view, setView] = useState<View>('list');
   const [query, setQuery] = useState('');
   const [locationFilter, setLocationFilter] = useState('전체');
+  const [manufacturerFilter, setManufacturerFilter] = useState('전체');
   const [tagFilter, setTagFilter] = useState('전체');
   const [managedTags, setManagedTags] = useState<Tag[]>([]);
   const [managedLocations, setManagedLocations] = useState<ManagedLocation[]>([]);
@@ -101,6 +103,14 @@ export default function Home() {
     ],
     [devices, managedLocations],
   );
+  const manufacturers = useMemo(
+    () => ['전체', ...Array.from(new Set(devices.map((device) => device.manufacturer).filter(Boolean))).sort()],
+    [devices],
+  );
+  const manufacturerOptions = useMemo(
+    () => Array.from(new Set(devices.map((device) => device.manufacturer).filter(Boolean))).sort(),
+    [devices],
+  );
   const filterTags = useMemo<FilterOption[]>(
     () => [{ label: '전체', value: '전체' }, ...managedTags.map((tag) => ({ label: tag.name, value: tag.id }))],
     [managedTags],
@@ -111,7 +121,6 @@ export default function Home() {
     const filtered = devices.filter((device) => {
       const text = [
         device.alias,
-        device.deviceName,
         device.qrPayload,
         device.numericCode,
         device.manufacturer,
@@ -124,9 +133,10 @@ export default function Home() {
         .toLowerCase();
       const matchesQuery = !normalizedQuery || text.includes(normalizedQuery);
       const matchesLocation = locationFilter === '전체' || device.location === locationFilter;
+      const matchesManufacturer = manufacturerFilter === '전체' || device.manufacturer === manufacturerFilter;
       const matchesTag = tagFilter === '전체' || device.tags.some((tag) => tag.id === tagFilter);
 
-      return matchesQuery && matchesLocation && matchesTag;
+      return matchesQuery && matchesLocation && matchesManufacturer && matchesTag;
     });
 
     return filtered.sort((a, b) => {
@@ -134,7 +144,7 @@ export default function Home() {
       if (sort === '최근 등록순') return b.createdAt.localeCompare(a.createdAt);
       return b.updatedAt.localeCompare(a.updatedAt);
     });
-  }, [devices, locationFilter, query, sort, tagFilter]);
+  }, [devices, locationFilter, manufacturerFilter, query, sort, tagFilter]);
 
   const selectedDevice =
     devices.find((device) => device.id === selectedId) ?? filteredDevices[0] ?? devices[0] ?? null;
@@ -228,7 +238,7 @@ export default function Home() {
   function startEdit(device: Device) {
     setForm({
       alias: device.alias,
-      deviceName: device.deviceName,
+      deviceName: '',
       qrPayload: device.qrPayload,
       numericCode: device.numericCode,
       manufacturer: device.manufacturer,
@@ -489,6 +499,9 @@ export default function Home() {
         <FilterPanel
           locationFilter={locationFilter}
           locations={locations}
+          manufacturerFilter={manufacturerFilter}
+          manufacturers={manufacturers}
+          setManufacturerFilter={setManufacturerFilter}
           setLocationFilter={setLocationFilter}
           setSort={setSort}
           setTagFilter={setTagFilter}
@@ -533,6 +546,7 @@ export default function Home() {
             scanState={scanState}
             managedTags={managedTags}
             managedLocations={managedLocations}
+            manufacturerOptions={manufacturerOptions}
             toggleFormTag={toggleFormTag}
             updateForm={updateForm}
           />
@@ -638,6 +652,8 @@ function LoginScreen({
 function FilterPanel({
   locationFilter,
   locations,
+  manufacturerFilter,
+  manufacturers,
   managedLocations,
   managedTags,
   onAddLocation,
@@ -647,6 +663,7 @@ function FilterPanel({
   onRenameLocation,
   onRenameTag,
   setLocationFilter,
+  setManufacturerFilter,
   setSort,
   setTagFilter,
   sort,
@@ -655,6 +672,8 @@ function FilterPanel({
 }: {
   locationFilter: string;
   locations: string[];
+  manufacturerFilter: string;
+  manufacturers: string[];
   managedLocations: ManagedLocation[];
   managedTags: Tag[];
   onAddLocation: (location: string) => void;
@@ -664,6 +683,7 @@ function FilterPanel({
   onRenameLocation: (locationId: string, next: string) => void;
   onRenameTag: (tagId: string, next: string) => void;
   setLocationFilter: (value: string) => void;
+  setManufacturerFilter: (value: string) => void;
   setSort: (value: string) => void;
   setTagFilter: (value: string) => void;
   sort: string;
@@ -682,6 +702,7 @@ function FilterPanel({
           type="button"
           onClick={() => {
             setLocationFilter('전체');
+            setManufacturerFilter('전체');
             setTagFilter('전체');
             setSort('최근 수정순');
           }}
@@ -707,6 +728,7 @@ function FilterPanel({
             onRenameLocation={onRenameLocation}
           />
         ) : null}
+        <FilterGroup label="제조사" options={manufacturers} selected={manufacturerFilter} onSelect={setManufacturerFilter} />
         <FilterGroup
           label="태그"
           managerOpen={tagManagerOpen}
@@ -1025,7 +1047,7 @@ function DeviceList({
         <div className="flex min-h-96 flex-col items-center justify-center p-8 text-center">
           <h3 className="text-xl font-bold">검색 조건과 일치하는 기기가 없습니다.</h3>
           <p className="mt-2 max-w-sm text-sm leading-6 text-zinc-500">
-            필터를 초기화하거나 새 Matter 기기를 등록해 mock 목록에 추가해 보세요.
+            필터를 초기화하거나 새 Matter 기기를 등록해 목록에 추가해 보세요.
           </p>
           <button className={`${buttonPrimary} mt-5`} type="button" onClick={onCreate}>
             새 기기 등록
@@ -1050,7 +1072,6 @@ function DeviceList({
                       {device.location}
                     </span>
                   </div>
-                  <p className="mt-1 truncate text-sm text-zinc-600">{device.deviceName}</p>
                   <p className="mt-2 break-all font-mono text-xs text-zinc-500">{device.qrPayload}</p>
                 </div>
                 <div className="flex flex-wrap gap-2 xl:justify-end">
@@ -1090,7 +1111,6 @@ function DeviceDetail({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-zinc-950">{device.alias}</h2>
-          <p className="mt-1 text-sm text-zinc-500">{device.deviceName}</p>
         </div>
         <span className="max-w-28 shrink-0 truncate rounded-lg bg-zinc-100 px-2 py-1 text-xs font-bold text-zinc-600">
           {device.location}
@@ -1138,6 +1158,7 @@ function DeviceFormView({
   form,
   managedLocations,
   managedTags,
+  manufacturerOptions,
   mode,
   onCancel,
   onScanResult,
@@ -1151,6 +1172,7 @@ function DeviceFormView({
   form: DeviceForm;
   managedLocations: ManagedLocation[];
   managedTags: Tag[];
+  manufacturerOptions: string[];
   mode: View;
   onCancel: () => void;
   onScanResult: (value: string) => void;
@@ -1161,94 +1183,179 @@ function DeviceFormView({
   updateForm: (field: keyof DeviceForm, value: string) => void;
 }) {
   const isEdit = mode === 'edit';
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  function handleModalScanResult(value: string) {
+    onScanResult(value);
+    setScannerOpen(false);
+  }
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-4">
       <div className="mb-5 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-zinc-950">{isEdit ? '기기 수정' : '새 기기 등록'}</h2>
-          <p className="text-sm text-zinc-500">API 없이 입력과 상태만 작동하는 mock 폼입니다.</p>
+          <p className="text-sm text-zinc-500">저장하면 기기 목록과 상세 정보에 바로 반영됩니다.</p>
         </div>
         <button className={buttonSecondary} type="button" onClick={onCancel}>
           목록으로
         </button>
       </div>
 
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <form className="min-w-0 space-y-4" onSubmit={onSubmit}>
-          <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-            <TextField label="기기 별명" value={form.alias} onChange={(value) => updateForm('alias', value)} required />
-            <TextField
-              label="실제 기기 이름"
-              value={form.deviceName}
-              onChange={(value) => updateForm('deviceName', value)}
-            />
-            <TextField
-              label="QR 인식값"
-              value={form.qrPayload}
-              onChange={(value) => updateForm('qrPayload', value)}
-              required
-            />
-            <TextField
-              label="숫자 코드"
-              value={form.numericCode}
-              onChange={(value) => updateForm('numericCode', value)}
-              required
-            />
-            <TextField label="제조사" value={form.manufacturer} onChange={(value) => updateForm('manufacturer', value)} />
-            <TextField label="모델" value={form.model} onChange={(value) => updateForm('model', value)} />
-            <SelectField
-              label="위치"
-              value={form.location}
-              onChange={(value) => updateForm('location', value)}
-              options={managedLocations.map((location) => location.name)}
-              placeholder="위치 선택"
-            />
+      <form className="min-w-0 space-y-4" onSubmit={onSubmit}>
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+          <TextField label="기기 별명" value={form.alias} onChange={(value) => updateForm('alias', value)} required />
+          <QrPayloadField
+            value={form.qrPayload}
+            onChange={(value) => updateForm('qrPayload', value)}
+            onOpenScanner={() => {
+              onScanState('idle');
+              setScannerOpen(true);
+            }}
+          />
+          <TextField
+            label="숫자 코드"
+            value={form.numericCode}
+            onChange={(value) => updateForm('numericCode', value)}
+            required
+          />
+          <TextField
+            label="제조사"
+            value={form.manufacturer}
+            onChange={(value) => updateForm('manufacturer', value)}
+            options={manufacturerOptions}
+            placeholder="제조사 입력 또는 선택"
+          />
+          <TextField label="모델" value={form.model} onChange={(value) => updateForm('model', value)} />
+          <SelectField
+            label="위치"
+            value={form.location}
+            onChange={(value) => updateForm('location', value)}
+            options={managedLocations.map((location) => location.name)}
+            placeholder="위치 선택"
+          />
+        </div>
+        <TagBinder managedTags={managedTags} selectedTagIds={form.tagIds} onToggleTag={toggleFormTag} />
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-zinc-800" htmlFor="notes">
+            메모
+          </label>
+          <textarea
+            className="min-h-24 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            id="notes"
+            value={form.notes}
+            onChange={(event) => updateForm('notes', event.target.value)}
+            placeholder="설치 위치, 재페어링 힌트, 기타 메모"
+          />
+        </div>
+
+        {duplicateDevice ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+            {duplicateDevice.alias}와 QR 또는 숫자 코드가 중복될 수 있습니다.
+          </p>
+        ) : null}
+
+        {isEdit ? (
+          <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800">
+            QR 인식값과 숫자 코드 변경은 저장 전 다시 확인해 주세요.
+          </p>
+        ) : null}
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button className={buttonPrimary} type="submit">
+            {isEdit ? '수정 저장' : '등록 저장'}
+          </button>
+          <button className={buttonSecondary} type="button" onClick={onCancel}>
+            취소
+          </button>
+        </div>
+      </form>
+
+      {scannerOpen ? (
+        <QrScannerDialog
+          onClose={() => {
+            onScanState('idle');
+            setScannerOpen(false);
+          }}
+          onScanResult={handleModalScanResult}
+          onScanState={onScanState}
+          qrPayload={form.qrPayload}
+          scanState={scanState}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function QrPayloadField({
+  onChange,
+  onOpenScanner,
+  value,
+}: {
+  onChange: (value: string) => void;
+  onOpenScanner: () => void;
+  value: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-semibold text-zinc-800" htmlFor="QR-인식값">
+        QR 인식값 <span className="text-red-600">*</span>
+      </label>
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+        <input
+          className={`${inputClass} min-w-0`}
+          id="QR-인식값"
+          required
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button className={`${buttonSecondary} shrink-0 sm:w-auto`} type="button" onClick={onOpenScanner}>
+          카메라 스캔
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function QrScannerDialog({
+  onClose,
+  onScanResult,
+  onScanState,
+  qrPayload,
+  scanState,
+}: {
+  onClose: () => void;
+  onScanResult: (value: string) => void;
+  onScanState: (state: ScanState) => void;
+  qrPayload: string;
+  scanState: ScanState;
+}) {
+  return (
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-zinc-950/50 p-4">
+      <section className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-xl">
+        <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-zinc-950">QR 코드 스캔</h2>
+            <p className="text-sm text-zinc-500">스캔이 완료되면 QR 인식값에 자동 입력됩니다.</p>
           </div>
-          <TagBinder managedTags={managedTags} selectedTagIds={form.tagIds} onToggleTag={toggleFormTag} />
-          <div>
-            <label className="mb-1 block text-sm font-semibold text-zinc-800" htmlFor="notes">
-              메모
-            </label>
-            <textarea
-              className="min-h-24 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-              id="notes"
-              value={form.notes}
-              onChange={(event) => updateForm('notes', event.target.value)}
-              placeholder="설치 위치, 재페어링 힌트, 기타 메모"
-            />
-          </div>
-
-          {duplicateDevice ? (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-              {duplicateDevice.alias}와 QR 또는 숫자 코드가 중복될 수 있습니다.
-            </p>
-          ) : null}
-
-          {isEdit ? (
-            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800">
-              QR 인식값과 숫자 코드 변경은 저장 전 다시 확인해 주세요.
-            </p>
-          ) : null}
-
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button className={buttonPrimary} type="submit">
-              {isEdit ? '수정 저장' : '등록 저장'}
-            </button>
-            <button className={buttonSecondary} type="button" onClick={onCancel}>
-              취소
-            </button>
-          </div>
-        </form>
-
+          <button
+            aria-label="QR 스캔 닫기"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300 focus:ring-offset-2"
+            title="닫기"
+            type="button"
+            onClick={onClose}
+          >
+            <X aria-hidden="true" size={18} strokeWidth={2.4} />
+          </button>
+        </div>
         <ScanPanel
           scanState={scanState}
           onScanResult={onScanResult}
           onScanState={onScanState}
-          qrPayload={form.qrPayload}
+          qrPayload={qrPayload}
         />
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -1323,8 +1430,9 @@ function ScanPanel({
     idle: '카메라 스캔을 시작하면 QR 인식값이 자동 입력됩니다.',
     requesting: '카메라 화면에서 QR 코드를 찾고 있습니다.',
     success: '스캔 성공: 등록 폼에 적용됨',
-    denied: '카메라 접근이 거부되었습니다. 수동 입력을 사용해 주세요.',
-    unsupported: '이 브라우저에서는 카메라 QR 스캔을 시작할 수 없습니다. 수동 입력을 사용해 주세요.',
+    denied: '카메라 접근이 거부되었습니다. 닫기 후 QR 인식값을 직접 입력해 주세요.',
+    blocked: '브라우저 또는 페이지 정책에서 카메라 사용이 차단되었습니다. 주소창의 사이트 권한과 배포 헤더를 확인해 주세요.',
+    unsupported: '이 브라우저에서는 카메라 QR 스캔을 시작할 수 없습니다. 닫기 후 QR 인식값을 직접 입력해 주세요.',
     insecure: '카메라 스캔은 HTTPS 또는 localhost에서 사용할 수 있습니다.',
   };
 
@@ -1351,6 +1459,13 @@ function ScanPanel({
 
     if (!navigator.mediaDevices?.getUserMedia || !videoRef.current) {
       onScanState('unsupported');
+      return;
+    }
+
+    const permissionState = await getCameraPermissionState();
+
+    if (permissionState === 'denied') {
+      onScanState('denied');
       return;
     }
 
@@ -1383,7 +1498,7 @@ function ScanPanel({
       stopCamera();
       const isPermissionError =
         error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
-      onScanState(isPermissionError ? 'denied' : 'unsupported');
+      onScanState(isPermissionError ? 'blocked' : 'unsupported');
     }
   }
 
@@ -1409,24 +1524,30 @@ function ScanPanel({
         <button className={buttonPrimary} type="button" onClick={startCameraScan}>
           {scanState === 'requesting' ? '스캔 중' : '카메라로 실제 스캔'}
         </button>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            className={buttonSecondary}
-            type="button"
-            onClick={() => {
-              stopCamera();
-              onScanState('idle');
-            }}
-          >
-            중지
-          </button>
-          <button className={buttonSecondary} type="button" onClick={() => onScanState('unsupported')}>
-            수동 입력
-          </button>
-        </div>
+        <button
+          className={buttonSecondary}
+          type="button"
+          onClick={() => {
+            stopCamera();
+            onScanState('idle');
+          }}
+        >
+          중지
+        </button>
       </div>
     </aside>
   );
+}
+
+async function getCameraPermissionState() {
+  if (!navigator.permissions?.query) return null;
+
+  try {
+    const status = await navigator.permissions.query({ name: 'camera' as PermissionName });
+    return status.state;
+  } catch {
+    return null;
+  }
 }
 
 function TextField({
@@ -1620,7 +1741,7 @@ function DeleteDialog({
       <section className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
         <h2 className="text-lg font-bold text-zinc-950">기기를 삭제할까요?</h2>
         <p className="mt-2 text-sm leading-6 text-zinc-600">
-          {device.alias} / {device.deviceName} 항목이 목록에서 제거된 것처럼 표시됩니다.
+          {device.alias} 항목이 목록에서 제거됩니다.
         </p>
         <p className="mt-3 rounded-lg bg-zinc-50 p-3 font-mono text-xs text-zinc-600">숫자 코드 {maskCode(device.numericCode)}</p>
         <div className="mt-5 grid gap-2 sm:grid-cols-2">

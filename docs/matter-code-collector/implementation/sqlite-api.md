@@ -2,13 +2,13 @@
 
 ## 목적
 
-현재 `src/app/page.tsx`의 mock 상태 기반 화면을 SQLite 저장소와 Next.js App Router Route Handler API로 연결한다. 이 문서는 구현 전에 따라야 할 순서, 파일 구조, 데이터 모델, API, 보안, Docker 운영 기준을 고정한다.
+현재 `src/app/page.tsx`의 클라이언트 화면을 SQLite 저장소와 Next.js App Router Route Handler API로 연결한다. 이 문서는 구현 전에 따라야 할 순서, 파일 구조, 데이터 모델, API, 보안, Docker 운영 기준을 고정한다.
 
 코드 작성 전에는 `node_modules/next/dist/docs/`의 관련 문서를 다시 확인한다. 특히 App Router Route Handler, 환경변수, 인증, 데이터 보안 문서를 우선 확인한다.
 
 ## 현재 상태
 
-- UI는 단일 클라이언트 컴포넌트 `src/app/page.tsx`에서 mock 데이터와 로컬 상태로 동작한다.
+- UI는 단일 클라이언트 컴포넌트 `src/app/page.tsx`에서 API 데이터와 로컬 화면 상태로 동작한다.
 - QR 카메라 스캔은 브라우저 `getUserMedia`와 `BarcodeDetector` 기반으로 클라이언트에서 유지한다.
 - 태그는 화면상 관리 UI가 있지만 아직 DB 저장은 없다.
 - 의존성은 구현을 위해 추가되어 있다:
@@ -19,9 +19,12 @@
 
 1. 서버 전용 DB 계층을 만든다.
    - `src/server/db/` 아래에 SQLite 연결, schema, migration/bootstrap, repository를 둔다.
-   - DB 파일 경로는 `MATTER_SQLITE_PATH`에서 읽는다.
-   - development fallback은 `./data/dev.sqlite`로 둔다.
-   - production에서는 `MATTER_SQLITE_PATH`, `AUTH_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`가 없으면 명확히 실패시킨다.
+   - 데이터 기준 경로는 `MATTER_DATA_PATH`에서 읽는다.
+   - DB 파일 경로는 기본적으로 `MATTER_DATA_PATH/sqlite/matter-code-collector.sqlite`를 사용한다.
+   - `MATTER_SQLITE_PATH`가 있으면 호환을 위해 이 값을 우선한다.
+   - development fallback은 `./data/sqlite/dev.sqlite`로 둔다.
+   - production에서는 `MATTER_DATA_PATH` 또는 `MATTER_SQLITE_PATH`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`가 없으면 명확히 실패시킨다.
+   - `AUTH_SECRET`이 없으면 volume에 자동 생성한 secret을 저장해 재시작 후에도 같은 값을 사용한다.
 2. 인증 계층을 만든다.
    - 최초 사용자 없음 상태에서 환경변수의 관리자 계정을 생성한다.
    - 비밀번호는 bcrypt hash로 저장한다.
@@ -32,12 +35,12 @@
    - 모든 devices/tags/locations/export API는 세션 검증을 먼저 수행한다.
    - 입력은 zod로 검증한다.
 4. UI를 API 기반으로 전환한다.
-   - mock 배열 초기값을 제거하고, 로그인 후 API에서 devices/tags/session을 가져온다.
+   - 로컬 샘플 배열 초기값을 제거하고, 로그인 후 API에서 devices/tags/session을 가져온다.
    - 생성/수정/삭제 후에는 해당 목록을 재조회한다.
    - QR 스캔은 계속 클라이언트에서 수행하고, 스캔 결과를 device create/update payload에 포함한다.
 5. Docker 운영 저장소를 반영한다.
    - Docker runner에서 `/data`를 만들고 `nextjs` 사용자가 쓸 수 있게 한다.
-   - 운영 예시는 `MATTER_SQLITE_PATH=/data/matter-code-collector.sqlite`로 둔다.
+   - 운영 예시는 `MATTER_DATA_PATH=/data`로 둔다.
 
 ## 데이터 모델
 
@@ -178,8 +181,8 @@ Export도 로그인 세션이 필요하다. 비밀번호 해시와 세션 정보
 
 - 서버 전용 코드는 클라이언트 컴포넌트에서 import하지 않는다.
 - 환경변수는 서버 계층에서만 읽는다.
-- `AUTH_SECRET`은 세션 토큰 hash/HMAC에 사용한다.
-- production에서 `AUTH_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `MATTER_SQLITE_PATH` 누락 시 앱이 명확한 오류로 실패해야 한다.
+- `AUTH_SECRET`은 세션 토큰 hash/HMAC에 사용한다. 값이 없으면 `AUTH_SECRET_PATH` 또는 `MATTER_DATA_PATH/auth/auth-secret` 파일에 자동 생성한 값을 저장해 사용한다.
+- production에서 `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `MATTER_DATA_PATH` 또는 `MATTER_SQLITE_PATH` 누락 시 앱이 명확한 오류로 실패해야 한다.
 - `MATTER_COOKIE_TRANSPORT=https-only`는 production 세션 쿠키에 `Secure`를 붙여 HTTPS에서만 로그인 세션을 허용한다.
 - `MATTER_COOKIE_TRANSPORT=http-and-https`는 production 세션 쿠키의 `Secure`를 끄고 HTTP와 HTTPS 모두에서 로그인 세션을 허용한다. 개인 내부망용 예외이며, 카메라 스캔은 브라우저 정책상 여전히 HTTPS 또는 localhost가 필요하다.
 - 로그인 실패 메시지는 계정 존재 여부를 드러내지 않는다.
@@ -193,8 +196,7 @@ Export도 로그인 세션이 필요하다. 비밀번호 해시와 세션 정보
 개발 예시:
 
 ```env
-MATTER_SQLITE_PATH=./data/dev.sqlite
-AUTH_SECRET=replace-with-long-random-secret
+MATTER_DATA_PATH=./data
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me
 MATTER_COOKIE_TRANSPORT=https-only
@@ -203,8 +205,7 @@ MATTER_COOKIE_TRANSPORT=https-only
 Docker 운영 예시:
 
 ```env
-MATTER_SQLITE_PATH=/data/matter-code-collector.sqlite
-AUTH_SECRET=replace-with-long-random-secret
+MATTER_DATA_PATH=/data
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me-before-first-run
 MATTER_COOKIE_TRANSPORT=https-only
@@ -226,7 +227,7 @@ docker run \
   matter-code-collector
 ```
 
-컨테이너 재생성 후에도 `/data/matter-code-collector.sqlite`가 보존되어야 한다.
+컨테이너 재생성 후에도 `/data/sqlite/matter-code-collector.sqlite`와 `/data/auth/auth-secret`이 보존되어야 한다.
 
 ## 검증 시나리오
 
@@ -246,7 +247,7 @@ docker run \
 
 ## 구현 중 주의사항
 
-- mock UI가 커졌으므로, API 전환 중 필요한 경우 `src/app/page.tsx`를 작은 client components로 분리한다.
+- UI가 커졌으므로, API 전환 중 필요한 경우 `src/app/page.tsx`를 작은 client components로 분리한다.
 - 단, 첫 구현에서는 동작 안정성을 우선하고 과한 추상화는 피한다.
 - Drizzle migration 파일을 생성할 경우 DB 파일과 migration 산출물을 구분한다.
 - SQLite DB 파일과 `.env*`는 git에 포함하지 않는다.

@@ -1,12 +1,15 @@
 import bcrypt from 'bcryptjs';
 import { randomBytes, createHmac, randomUUID } from 'crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { eq, lt } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
+import { dirname, resolve } from 'path';
 import { getDb } from '@/server/db/client';
 import { sessions, users } from '@/server/db/schema';
 
 export const SESSION_COOKIE = 'matter_session';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+let cachedAuthSecret: string | null = null;
 
 export type SafeUser = {
   id: string;
@@ -129,11 +132,39 @@ function hashToken(token: string) {
 function getAuthSecret() {
   if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
 
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('AUTH_SECRET is required in production.');
+  if (cachedAuthSecret) return cachedAuthSecret;
+
+  const secretPath = getAuthSecretPath();
+
+  if (existsSync(secretPath)) {
+    const existingSecret = readFileSync(secretPath, 'utf8').trim();
+    if (existingSecret) {
+      cachedAuthSecret = existingSecret;
+      return existingSecret;
+    }
   }
 
-  return 'development-only-auth-secret';
+  mkdirSync(dirname(secretPath), { recursive: true });
+
+  const generatedSecret = randomBytes(32).toString('base64url');
+  writeFileSync(secretPath, `${generatedSecret}\n`, { mode: 0o600 });
+  cachedAuthSecret = generatedSecret;
+
+  return generatedSecret;
+}
+
+function getAuthSecretPath() {
+  if (process.env.AUTH_SECRET_PATH) return resolve(process.env.AUTH_SECRET_PATH);
+
+  if (process.env.MATTER_DATA_PATH) {
+    return resolve(process.env.MATTER_DATA_PATH, 'auth/auth-secret');
+  }
+
+  const sqlitePath = process.env.MATTER_SQLITE_PATH
+    ? resolve(process.env.MATTER_SQLITE_PATH)
+    : resolve(process.cwd(), 'data/sqlite/dev.sqlite');
+
+  return resolve(dirname(dirname(sqlitePath)), 'auth/auth-secret');
 }
 
 function shouldUseSecureSessionCookie() {

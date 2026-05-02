@@ -41,8 +41,7 @@ services:
     ports:
       - '3000:3000'
     environment:
-      MATTER_SQLITE_PATH: /data/matter-code-collector.sqlite
-      AUTH_SECRET: replace-with-long-random-secret
+      MATTER_DATA_PATH: /data
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: change-me-before-first-run
       MATTER_COOKIE_TRANSPORT: https-only
@@ -56,18 +55,20 @@ volumes:
 
 ### 환경변수
 
-- `MATTER_SQLITE_PATH`: SQLite DB 파일 경로입니다. Docker에서는 `/data/matter-code-collector.sqlite`처럼 volume 안의 경로를 사용합니다.
-- `AUTH_SECRET`: 로그인 세션 토큰 서명에 쓰는 비밀값입니다. 운영 환경에서는 필수이며, 없으면 앱이 명확한 오류로 실패합니다.
+- `MATTER_DATA_PATH`: 앱 데이터 기준 디렉터리입니다. Docker에서는 `/data`를 권장합니다. 이 값을 쓰면 SQLite는 `/data/sqlite/matter-code-collector.sqlite`, 자동 생성 secret은 `/data/auth/auth-secret`에 저장됩니다.
+- `MATTER_SQLITE_PATH`: SQLite DB 파일 경로를 직접 지정하고 싶을 때만 사용합니다. `MATTER_DATA_PATH`보다 우선합니다.
+- `AUTH_SECRET`: 로그인 세션 토큰 서명에 쓰는 비밀값입니다. 없으면 앱이 `AUTH_SECRET_PATH` 위치에 자동 생성합니다.
+- `AUTH_SECRET_PATH`: `AUTH_SECRET`이 없을 때 자동 생성한 비밀값을 저장할 파일 경로를 직접 지정하고 싶을 때만 사용합니다. 생략하면 `MATTER_DATA_PATH` 기준 `/data/auth/auth-secret`에 생성합니다.
 - `ADMIN_USERNAME`, `ADMIN_PASSWORD`: DB에 사용자가 하나도 없을 때 최초 관리자 계정을 만들기 위해서만 사용합니다. 최초 실행 후 DB에 사용자가 생성되면 이 값을 제거해도 기존 계정으로 로그인할 수 있습니다.
 - `MATTER_COOKIE_TRANSPORT`: 로그인 쿠키 전송 정책입니다.
 
-`AUTH_SECRET`은 배포 전에 아래처럼 생성해 설정합니다.
+`AUTH_SECRET`을 직접 지정하고 싶으면 배포 전에 아래처럼 생성해 설정합니다.
 
 ```bash
 openssl rand -base64 32
 ```
 
-운영 중 `AUTH_SECRET`을 바꾸면 기존 로그인 세션은 무효화됩니다. 저장된 기기 데이터와 관리자 계정은 SQLite DB에 남아 있습니다.
+`AUTH_SECRET` 또는 자동 생성된 `AUTH_SECRET_PATH` 파일의 값을 바꾸면 기존 로그인 세션은 무효화됩니다. 저장된 기기 데이터와 관리자 계정은 SQLite DB에 남아 있습니다.
 
 `MATTER_COOKIE_TRANSPORT` 옵션:
 
@@ -83,8 +84,7 @@ openssl rand -base64 32
 ```bash
 docker build -t matter-code-collector:latest .
 docker run --rm -p 3000:3000 \
-  -e MATTER_SQLITE_PATH=/data/matter-code-collector.sqlite \
-  -e AUTH_SECRET=replace-with-long-random-secret \
+  -e MATTER_DATA_PATH=/data \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=change-me-before-first-run \
   -e MATTER_COOKIE_TRANSPORT=http-and-https \
