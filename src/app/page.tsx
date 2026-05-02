@@ -1197,11 +1197,12 @@ function DeviceFormView({
             />
             <TextField label="제조사" value={form.manufacturer} onChange={(value) => updateForm('manufacturer', value)} />
             <TextField label="모델" value={form.model} onChange={(value) => updateForm('model', value)} />
-            <TextField
+            <SelectField
               label="위치"
               value={form.location}
               onChange={(value) => updateForm('location', value)}
               options={managedLocations.map((location) => location.name)}
+              placeholder="위치 선택"
             />
           </div>
           <TagBinder managedTags={managedTags} selectedTagIds={form.tagIds} onToggleTag={toggleFormTag} />
@@ -1468,6 +1469,50 @@ function TextField({
           ))}
         </datalist>
       ) : null}
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  onChange,
+  options,
+  placeholder,
+  required,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder?: string;
+  required?: boolean;
+  value: string;
+}) {
+  const id = label.replace(/\s+/g, '-');
+  const normalizedOptions = Array.from(new Set(options.filter(Boolean)));
+  const optionsWithCurrent =
+    value && !normalizedOptions.includes(value) ? [value, ...normalizedOptions] : normalizedOptions;
+
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-semibold text-zinc-800" htmlFor={id}>
+        {label}
+        {required ? <span className="text-red-600"> *</span> : null}
+      </label>
+      <select
+        className={inputClass}
+        id={id}
+        required={required}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{placeholder ?? '선택 안 함'}</option>
+        {optionsWithCurrent.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
